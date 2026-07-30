@@ -103,13 +103,14 @@ export default function Outpost() {
   const repairStartedRef = useRef(0);
   const { status, acknowledged, repairPulse } = useBuildBridge();
   const failed = status === "FAILED";
-  const smoking = failed && !acknowledged;
+  const warning = status === "WARNING";
+  const smoking = (failed || warning) && !acknowledged;
   const targetColor = useMemo(
     () =>
       new THREE.Color(
-        acknowledged ? "#f0aa3c" : failed ? "#7d171c" : "#168a65",
+        acknowledged ? "#f0aa3c" : failed ? "#7d171c" : warning ? "#c47a00" : "#168a65",
       ),
-    [acknowledged, failed],
+    [acknowledged, failed, warning],
   );
 
   useEffect(() => {
@@ -128,7 +129,9 @@ export default function Outpost() {
         ? 1.35 + Math.sin(state.clock.elapsedTime * 10) * 0.55
         : failed
           ? 0.55 + Math.sin(state.clock.elapsedTime * 4) * 0.15
-          : 0.32 + Math.sin(state.clock.elapsedTime * 2) * 0.08;
+          : warning
+            ? 0.45 + Math.sin(state.clock.elapsedTime * 2.5) * 0.12
+            : 0.32 + Math.sin(state.clock.elapsedTime * 2) * 0.08;
     coreMaterialRef.current.emissiveIntensity = pulse;
   });
 
@@ -136,7 +139,9 @@ export default function Outpost() {
     ? "#966224"
     : failed
       ? "#3f1519"
-      : "#173f38";
+      : warning
+        ? "#5c3c00"
+        : "#173f38";
 
   return (
     <group position={OUTPOST_POSITION}>
@@ -176,8 +181,8 @@ export default function Outpost() {
           >
             <boxGeometry args={[0.17, 0.07, 0.09]} />
             <meshStandardMaterial
-              color={failed ? "#8b2929" : "#2bb48c"}
-              emissive={failed ? "#4b0808" : "#0a5c44"}
+              color={failed ? "#8b2929" : warning ? "#8b6200" : "#2bb48c"}
+              emissive={failed ? "#4b0808" : warning ? "#3d2a00" : "#0a5c44"}
               emissiveIntensity={0.7}
               metalness={0.6}
             />
@@ -192,8 +197,8 @@ export default function Outpost() {
       <mesh position={[0, 1.01, 0]}>
         <sphereGeometry args={[0.065, 16, 12]} />
         <meshStandardMaterial
-          color={failed ? "#ff3e38" : "#71ffd0"}
-          emissive={failed ? "#ff1810" : "#36ffbb"}
+          color={failed ? "#ff3e38" : warning ? "#ffcc00" : "#71ffd0"}
+          emissive={failed ? "#ff1810" : warning ? "#cc9900" : "#36ffbb"}
           emissiveIntensity={2}
         />
       </mesh>
@@ -201,7 +206,7 @@ export default function Outpost() {
       {smoking && (
         <>
           <SmokeParticles />
-          <SparkParticles />
+          {failed && <SparkParticles />}
         </>
       )}
     </group>

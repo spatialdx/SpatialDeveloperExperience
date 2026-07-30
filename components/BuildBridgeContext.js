@@ -38,6 +38,7 @@ export function BuildBridgeProvider({ children }) {
   const [acknowledged, setAcknowledged] = useState(false);
   const [repairPulse, setRepairPulse] = useState(0);
   const [lastError, setLastError] = useState("");
+  const [renovatePR, setRenovatePR] = useState(null);
 
   useEffect(() => {
     let disposed = false;
@@ -60,6 +61,8 @@ export function BuildBridgeProvider({ children }) {
             setStatus(message.status);
             setBuildUrl(message.buildUrl);
             setAcknowledged(false);
+          } else if (message.type === "RENOVATE_PR") {
+            setRenovatePR(message);
           } else if (message.type === "ERROR") {
             setLastError(message.message);
           }
@@ -136,6 +139,7 @@ export function BuildBridgeProvider({ children }) {
       acknowledged,
       repairPulse,
       lastError,
+      renovatePR,
       setBuildState,
       triggerPcAction,
       registerRepairHit,
@@ -147,6 +151,7 @@ export function BuildBridgeProvider({ children }) {
       acknowledged,
       repairPulse,
       lastError,
+      renovatePR,
       setBuildState,
       triggerPcAction,
       registerRepairHit,

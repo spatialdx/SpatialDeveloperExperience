@@ -6,6 +6,7 @@ import { Grid, OrbitControls } from "@react-three/drei";
 import { XR, createXRStore, useXR } from "@react-three/xr";
 import Outpost, { OUTPOST_POSITION } from "./Outpost";
 import Wrench from "./Wrench";
+import Cog from "./Cog";
 
 export const xrStore = createXRStore({
   controller: true,
@@ -64,6 +65,7 @@ function SpatialScene() {
     <>
       <AdaptiveEnvironment objectInteractionActive={objectInteractionActive} />
       <Outpost />
+      <Cog />
       <Wrench
         outpostPosition={OUTPOST_POSITION}
         onGrabChange={setObjectInteractionActive}

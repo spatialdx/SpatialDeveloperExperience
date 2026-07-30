@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import { WebSocket, WebSocketServer } from "ws";
 import open from "open";
@@ -13,15 +14,57 @@ const ALLOW_ARBITRARY_BUILD_URLS =
   process.env.ALLOW_ARBITRARY_BUILD_URLS === "true";
 const XR_HTTPS = process.env.XR_HTTPS === "1";
 
-let currentBuild = {
-  status: "PASSED",
-  buildUrl: "https://github.com/example/repo/actions/runs/123",
-};
+const DEFAULT_REPO = "local/debug";
+const buildStates = new Map([
+  [DEFAULT_REPO, { status: "PASSED", buildUrl: "https://github.com/example/repo/actions/runs/123" }],
+]);
+let lastBroadcastRepo = DEFAULT_REPO;
+
+const recentDeliveries = new Map();
+
+function pruneOldDeliveries(now) {
+  const cutoff = now - 5 * 60 * 1000;
+  for (const [id, ts] of recentDeliveries) {
+    if (ts < cutoff) recentDeliveries.delete(id);
+  }
+}
+
+function verifyGithubSignature(secret, rawBody, header) {
+  if (!header) return false;
+  const eqIndex = header.indexOf("=");
+  if (eqIndex < 0 || header.slice(0, eqIndex) !== "sha256") return false;
+  const receivedHex = header.slice(eqIndex + 1);
+  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  let receivedBuf;
+  try {
+    receivedBuf = Buffer.from(receivedHex, "hex");
+  } catch {
+    return false;
+  }
+  if (receivedBuf.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(receivedBuf, expectedBuf);
+}
+
+const PASSING_CONCLUSIONS = new Set(["success"]);
+const FAILING_CONCLUSIONS = new Set(["failure", "timed_out", "startup_failure"]);
+
+function mapWorkflowConclusion(conclusion) {
+  if (PASSING_CONCLUSIONS.has(conclusion)) return "PASSED";
+  if (FAILING_CONCLUSIONS.has(conclusion)) return "FAILED";
+  if (conclusion) return "WARNING";
+  return null;
+}
+
+function isRenovateBot(login) {
+  return login === "renovate[bot]" ||
+    (login.endsWith("[bot]") && login.toLowerCase().includes("renovate"));
+}
 
 function normalizeBuildState(payload) {
   const status = String(payload?.status || "").toUpperCase();
-  if (status !== "PASSED" && status !== "FAILED") {
-    throw new Error('status must be either "PASSED" or "FAILED"');
+  if (status !== "PASSED" && status !== "WARNING" && status !== "FAILED") {
+    throw new Error('status must be "PASSED", "WARNING", or "FAILED"');
   }
 
   let parsedUrl;
@@ -36,10 +79,6 @@ function normalizeBuildState(payload) {
   }
 
   return { status, buildUrl: parsedUrl.toString() };
-}
-
-function buildStateMessage() {
-  return JSON.stringify({ type: "BUILD_STATE_CHANGE", ...currentBuild });
 }
 
 async function loadTlsOptions() {
@@ -76,17 +115,22 @@ const socketServer = new WebSocketServer({
   path: "/socket",
 });
 
-function broadcastBuildState() {
-  const message = buildStateMessage();
+function broadcastMessage(message) {
+  const json = JSON.stringify(message);
   for (const client of socketServer.clients) {
-    if (client.readyState === WebSocket.OPEN) client.send(message);
+    if (client.readyState === WebSocket.OPEN) client.send(json);
   }
+}
+
+function broadcastBuildState(repo) {
+  lastBroadcastRepo = repo;
+  broadcastMessage({ type: "BUILD_STATE_CHANGE", ...buildStates.get(repo), repo });
 }
 
 socketServer.on("connection", (socket, request) => {
   socket.isAlive = true;
   console.log(`[ws] Quest client connected from ${request.socket.remoteAddress}`);
-  socket.send(buildStateMessage());
+  socket.send(JSON.stringify({ type: "BUILD_STATE_CHANGE", ...buildStates.get(lastBroadcastRepo), repo: lastBroadcastRepo }));
 
   socket.on("pong", () => {
     socket.isAlive = true;
@@ -105,10 +149,11 @@ socketServer.on("connection", (socket, request) => {
 
     if (message.type !== "TRIGGER_PC_ACTION") return;
 
+    const displayState = buildStates.get(lastBroadcastRepo);
     let target;
     try {
       target = normalizeBuildState({
-        status: currentBuild.status,
+        status: displayState.status,
         buildUrl: message.url,
       }).buildUrl;
     } catch (error) {
@@ -116,7 +161,7 @@ socketServer.on("connection", (socket, request) => {
       return;
     }
 
-    if (!ALLOW_ARBITRARY_BUILD_URLS && target !== currentBuild.buildUrl) {
+    if (!ALLOW_ARBITRARY_BUILD_URLS && target !== displayState.buildUrl) {
       socket.send(
         JSON.stringify({
           type: "ERROR",
@@ -156,6 +201,78 @@ const heartbeat = setInterval(() => {
 }, 30_000);
 
 const app = express();
+
+// Mount before express.json() so express.raw() captures raw bytes for HMAC-SHA256 verification.
+app.post("/api/webhook/github", express.raw({ type: "*/*" }), (request, response) => {
+  const secret = process.env.GITHUB_WEBHOOK_SECRET;
+  if (!secret) {
+    return response.status(500).json({ ok: false, error: "GITHUB_WEBHOOK_SECRET is not configured" });
+  }
+
+  const signature = request.headers["x-hub-signature-256"];
+  const deliveryId = request.headers["x-github-delivery"];
+  const eventType = request.headers["x-github-event"];
+
+  if (!verifyGithubSignature(secret, request.body, signature)) {
+    return response.status(401).json({ ok: false, error: "Invalid signature" });
+  }
+
+  const now = Date.now();
+  pruneOldDeliveries(now);
+  if (deliveryId && recentDeliveries.has(deliveryId)) {
+    return response.status(200).json({ ok: true, note: "Already processed" });
+  }
+  if (deliveryId) recentDeliveries.set(deliveryId, now);
+
+  let payload;
+  try {
+    payload = JSON.parse(request.body.toString());
+  } catch {
+    return response.status(400).json({ ok: false, error: "Invalid JSON payload" });
+  }
+
+  const repo = payload.repository?.full_name || "unknown";
+
+  if (eventType === "workflow_run") {
+    if (payload.action !== "completed") {
+      return response.status(200).json({ ok: true, note: "Event ignored" });
+    }
+    const status = mapWorkflowConclusion(payload.workflow_run?.conclusion);
+    if (!status) {
+      return response.status(200).json({ ok: true, note: "Event ignored" });
+    }
+    const buildUrl = payload.workflow_run?.html_url || "";
+    let normalized;
+    try {
+      normalized = normalizeBuildState({ status, buildUrl });
+    } catch (error) {
+      return response.status(400).json({ ok: false, error: error.message });
+    }
+    buildStates.set(repo, normalized);
+    broadcastBuildState(repo);
+    console.log(`[github] ${repo} ${normalized.status} (${payload.workflow_run?.conclusion}) — ${deliveryId}`);
+    return response.status(202).json({ ok: true, build: { ...normalized, repo } });
+  }
+
+  if (eventType === "pull_request") {
+    const senderLogin = payload.sender?.login || "";
+    if (!isRenovateBot(senderLogin)) {
+      return response.status(200).json({ ok: true, note: "Event ignored" });
+    }
+    const prMessage = {
+      type: "RENOVATE_PR",
+      repo,
+      prUrl: payload.pull_request?.html_url || "",
+      updates: [],
+    };
+    broadcastMessage(prMessage);
+    console.log(`[github] Renovate PR ${prMessage.prUrl} — ${deliveryId}`);
+    return response.status(202).json({ ok: true });
+  }
+
+  return response.status(200).json({ ok: true, note: "Event ignored" });
+});
+
 app.use(express.json({ limit: "32kb" }));
 app.use((request, response, next) => {
   response.setHeader("Access-Control-Allow-Origin", "*");
@@ -169,18 +286,20 @@ app.get("/api/health", (_request, response) => {
   response.json({
     ok: true,
     websocketClients: socketServer.clients.size,
-    build: currentBuild,
+    build: buildStates.get(lastBroadcastRepo),
+    repos: buildStates.size,
   });
 });
 
 app.post("/api/webhook/build", (request, response) => {
   try {
-    currentBuild = normalizeBuildState(request.body);
-    broadcastBuildState();
+    const normalized = normalizeBuildState(request.body);
+    buildStates.set(DEFAULT_REPO, normalized);
+    broadcastBuildState(DEFAULT_REPO);
     console.log(
-      `[build] ${currentBuild.status} — ${currentBuild.buildUrl} (${socketServer.clients.size} clients)`,
+      `[build] ${normalized.status} — ${normalized.buildUrl} (${socketServer.clients.size} clients)`,
     );
-    response.status(202).json({ ok: true, build: currentBuild });
+    response.status(202).json({ ok: true, build: normalized });
   } catch (error) {
     response.status(400).json({ ok: false, error: error.message });
   }
