@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { useBuildBridge } from "./BuildBridgeContext";
 
-const COG_POSITION = [0.72, 0.3, -1.4];
+const COG_POSITION = [0.25, 0.82, -0.8];
 // Six tooth rectangles evenly spaced around the hub
 const TOOTH_ANGLES = Array.from({ length: 6 }, (_, i) => (i * Math.PI) / 3);
 
@@ -44,7 +44,7 @@ export default function Cog() {
   if (!renovatePR) return null;
 
   return (
-    <group ref={groupRef} position={COG_POSITION}>
+    <group ref={groupRef} position={COG_POSITION} scale={0.55}>
       <GearMesh color="#6ab0ff" />
       <pointLight color="#4488ff" intensity={0.6} distance={0.6} decay={2} />
     </group>
