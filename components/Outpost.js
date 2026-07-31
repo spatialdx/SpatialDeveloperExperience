@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useBuildBridge } from "./BuildBridgeContext";
 
-export const OUTPOST_POSITION = [0, 0.58, -1.4];
+export const OUTPOST_POSITION = [0, 0.75, -0.8];
+const MIN_OUTPOST_SCALE = 0.11;
+const MAX_OUTPOST_SCALE = 0.34;
 
 function seededUnit(seed) {
   const value = Math.sin(seed * 12.9898) * 43758.5453;
@@ -97,10 +99,29 @@ function SparkParticles() {
   );
 }
 
-export default function Outpost() {
+export default function Outpost({
+  initialPosition,
+  scale,
+  onScaleChange,
+  onPositionChange,
+  onGrabChange,
+}) {
+  const placementRef = useRef();
   const coreMaterialRef = useRef();
   const ringRef = useRef();
   const repairStartedRef = useRef(0);
+  const interactionRef = useRef(null);
+  const xrInteractionRef = useRef(false);
+  const pointerTargetRef = useRef(null);
+  const movePlaneRef = useRef(new THREE.Plane());
+  const scalePlaneRef = useRef(new THREE.Plane());
+  const planePointRef = useRef(new THREE.Vector3());
+  const grabOffsetRef = useRef(new THREE.Vector3());
+  const centerWorldRef = useRef(new THREE.Vector3());
+  const cameraDirectionRef = useRef(new THREE.Vector3());
+  const scaleStartRef = useRef({ scale, distance: 1 });
+  const camera = useThree((state) => state.camera);
+  const [scaleHovered, setScaleHovered] = useState(false);
   const { status, acknowledged, repairPulse } = useBuildBridge();
   const failed = status === "FAILED";
   const warning = status === "WARNING";
@@ -111,6 +132,17 @@ export default function Outpost() {
         acknowledged ? "#f0aa3c" : failed ? "#7d171c" : warning ? "#c47a00" : "#168a65",
       ),
     [acknowledged, failed, warning],
+  );
+
+  useLayoutEffect(() => {
+    placementRef.current.position.set(...initialPosition);
+  }, [initialPosition]);
+
+  useEffect(
+    () => () => {
+      if (interactionRef.current) onGrabChange(false);
+    },
+    [onGrabChange],
   );
 
   useEffect(() => {
@@ -143,8 +175,121 @@ export default function Outpost() {
         ? "#5c3c00"
         : "#173f38";
 
+  function configureInteractionPlane(event, plane) {
+    placementRef.current.getWorldPosition(centerWorldRef.current);
+    camera.getWorldDirection(cameraDirectionRef.current);
+    plane.setFromNormalAndCoplanarPoint(
+      cameraDirectionRef.current,
+      centerWorldRef.current,
+    );
+    return event.ray.intersectPlane(plane, planePointRef.current);
+  }
+
+  function beginMove(event) {
+    event.stopPropagation();
+    interactionRef.current = "move";
+    xrInteractionRef.current = event.pointerType === "grab";
+    pointerTargetRef.current = event.target;
+    event.target.setPointerCapture(event.pointerId);
+    onGrabChange(true);
+
+    if (xrInteractionRef.current) {
+      grabOffsetRef.current
+        .copy(placementRef.current.position)
+        .sub(event.point);
+      return;
+    }
+
+    if (configureInteractionPlane(event, movePlaneRef.current)) {
+      grabOffsetRef.current
+        .copy(placementRef.current.position)
+        .sub(planePointRef.current);
+    }
+  }
+
+  function moveOutpost(event) {
+    if (interactionRef.current !== "move") return;
+    event.stopPropagation();
+    const point = xrInteractionRef.current
+      ? event.point
+      : event.ray.intersectPlane(movePlaneRef.current, planePointRef.current)
+        ? planePointRef.current
+        : null;
+    if (point) {
+      placementRef.current.position.copy(point).add(grabOffsetRef.current);
+    }
+  }
+
+  function beginScale(event) {
+    event.stopPropagation();
+    interactionRef.current = "scale";
+    xrInteractionRef.current = event.pointerType === "grab";
+    pointerTargetRef.current = event.target;
+    event.target.setPointerCapture(event.pointerId);
+    onGrabChange(true);
+    placementRef.current.getWorldPosition(centerWorldRef.current);
+
+    const point = xrInteractionRef.current
+      ? event.point
+      : configureInteractionPlane(event, scalePlaneRef.current)
+        ? planePointRef.current
+        : event.point;
+    scaleStartRef.current = {
+      scale,
+      distance: Math.max(0.01, point.distanceTo(centerWorldRef.current)),
+    };
+  }
+
+  function resizeOutpost(event) {
+    if (interactionRef.current !== "scale") return;
+    event.stopPropagation();
+    const point = xrInteractionRef.current
+      ? event.point
+      : event.ray.intersectPlane(scalePlaneRef.current, planePointRef.current)
+        ? planePointRef.current
+        : null;
+    if (!point) return;
+
+    placementRef.current.getWorldPosition(centerWorldRef.current);
+    const ratio =
+      point.distanceTo(centerWorldRef.current) /
+      scaleStartRef.current.distance;
+    onScaleChange(
+      THREE.MathUtils.clamp(
+        scaleStartRef.current.scale * ratio,
+        MIN_OUTPOST_SCALE,
+        MAX_OUTPOST_SCALE,
+      ),
+    );
+  }
+
+  function finishInteraction(event) {
+    if (!interactionRef.current) return;
+    event.stopPropagation();
+    const completedMove = interactionRef.current === "move";
+    interactionRef.current = null;
+    onGrabChange(false);
+    if (completedMove) {
+      onPositionChange(placementRef.current.position.toArray());
+    }
+    const target = pointerTargetRef.current;
+    if (target?.hasPointerCapture(event.pointerId)) {
+      target.releasePointerCapture(event.pointerId);
+    }
+    pointerTargetRef.current = null;
+  }
+
   return (
-    <group position={OUTPOST_POSITION}>
+    <group
+      ref={placementRef}
+      scale={scale}
+      onPointerDown={beginMove}
+      onPointerMove={moveOutpost}
+      onPointerUp={finishInteraction}
+      onPointerCancel={finishInteraction}
+      onLostPointerCapture={finishInteraction}
+      pointerEventsOrder={1}
+    >
       <mesh castShadow receiveShadow position={[0, 0.08, 0]}>
         <cylinderGeometry args={[0.42, 0.48, 0.16, 8]} />
         <meshStandardMaterial color="#162526" metalness={0.85} roughness={0.28} />
@@ -209,6 +354,40 @@ export default function Outpost() {
           {failed && <SparkParticles />}
         </>
       )}
+
+      <group
+        position={[0.58, 0.9, 0]}
+        scale={1 / scale}
+        onPointerDown={beginScale}
+        onPointerMove={resizeOutpost}
+        onPointerUp={finishInteraction}
+        onPointerCancel={finishInteraction}
+        onLostPointerCapture={finishInteraction}
+        onPointerOver={(event) => {
+          event.stopPropagation();
+          setScaleHovered(true);
+        }}
+        onPointerOut={(event) => {
+          event.stopPropagation();
+          setScaleHovered(false);
+        }}
+        pointerEventsOrder={3}
+      >
+        <mesh>
+          <sphereGeometry args={[scaleHovered ? 0.035 : 0.028, 18, 14]} />
+          <meshStandardMaterial
+            color="#72f6c1"
+            emissive="#27dca0"
+            emissiveIntensity={scaleHovered ? 2.4 : 1.4}
+            transparent
+            opacity={0.92}
+          />
+        </mesh>
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.052, 0.005, 8, 28]} />
+          <meshBasicMaterial color="#baffea" transparent opacity={0.72} />
+        </mesh>
+      </group>
     </group>
   );
 }

@@ -25,7 +25,7 @@ function getWebSocketUrl() {
 function getApiBaseUrl() {
   return (
     process.env.NEXT_PUBLIC_API_URL ||
-    `${window.location.protocol}//${window.location.hostname}:8081`
+    `${window.location.origin}/bridge-api`
   );
 }
 

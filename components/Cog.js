@@ -5,7 +5,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useBuildBridge } from "./BuildBridgeContext";
 
-const COG_POSITION = [0.72, 0.3, -1.4];
+const COG_POSITION = [0.25, 0.82, -0.8];
 // Module-level temp vectors; safe because only one Cog exists at a time.
 const worldPosition = new THREE.Vector3();
 const padCenter = new THREE.Vector3();
@@ -179,6 +179,7 @@ export default function Cog({
     <group
       ref={groupRef}
       visible={!!renovatePR}
+      scale={0.55}
       onPointerDown={beginGrab}
       onPointerMove={moveGrab}
       onPointerUp={endGrab}

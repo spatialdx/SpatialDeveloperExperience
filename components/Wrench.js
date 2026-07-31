@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
-const startPosition = [0.58, 0.96, -1.18];
+const startPosition = [0.24, 0.86, -0.76];
 const worldPosition = new THREE.Vector3();
 const padCenter = new THREE.Vector3();
 
@@ -36,7 +36,6 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
-
     if (droppedRef.current) {
       groupRef.current.position.lerp(snapTargetRef.current, 1 - Math.exp(-14 * delta));
       return;
@@ -141,7 +140,7 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
     <group
       ref={groupRef}
       rotation={[0.18, 0, -0.7]}
-      scale={0.72}
+      scale={0.22}
       onPointerDown={beginGrab}
       onPointerMove={moveGrab}
       onPointerUp={endGrab}

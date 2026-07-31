@@ -1,6 +1,7 @@
 import vinext from "vinext";
 import { defineConfig } from "vite";
 import basicSsl from "@vitejs/plugin-basic-ssl";
+import { readFileSync } from "node:fs";
 import hostingConfig from "./.openai/hosting.json";
 import { sites } from "./build/sites-vite-plugin";
 
@@ -13,6 +14,10 @@ const { d1, r2 } = hostingConfig;
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
 const useXrHttps = process.env.XR_HTTPS === "1";
 const exposeToLan = process.env.XR_HOST === "1";
+const tlsCertificatePath = process.env.TLS_CERT_PATH;
+const tlsKeyPath = process.env.TLS_KEY_PATH;
+const useCustomXrCertificate =
+  useXrHttps && Boolean(tlsCertificatePath && tlsKeyPath);
 
 const localBindingConfig = {
   main: "./worker/index.ts",
@@ -62,13 +67,29 @@ export default defineConfig(async () => {
     },
     server: {
       host: exposeToLan ? "0.0.0.0" : undefined,
+      https: useCustomXrCertificate
+        ? {
+            cert: readFileSync(tlsCertificatePath!),
+            key: readFileSync(tlsKeyPath!),
+          }
+        : undefined,
+      proxy: {
+        "/bridge-api": {
+          target: useXrHttps
+            ? "https://127.0.0.1:8081"
+            : "http://127.0.0.1:8081",
+          secure: false,
+          rewrite: (requestPath: string) =>
+            requestPath.replace(/^\/bridge-api/, ""),
+        },
+      },
       watch: isCodexSeatbeltSandbox
         ? { useFsEvents: false, usePolling: true }
         : undefined,
     },
     plugins: [
       vinext(),
-      ...(useXrHttps ? [basicSsl()] : []),
+      ...(useXrHttps && !useCustomXrCertificate ? [basicSsl()] : []),
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
