@@ -8,6 +8,8 @@ import Outpost, { OUTPOST_POSITION } from "./Outpost";
 import Wrench from "./Wrench";
 import Cog from "./Cog";
 
+const DEFAULT_OUTPOST_SCALE = 0.18;
+
 export const xrStore = createXRStore({
   controller: true,
   hand: true,
@@ -35,12 +37,12 @@ function AdaptiveEnvironment({ objectInteractionActive }) {
           <OrbitControls
             makeDefault
             enabled={!objectInteractionActive}
-            target={[0, 0.75, -1.3]}
-            minDistance={1.4}
-            maxDistance={8}
+            target={[0, 0.84, -0.8]}
+            minDistance={0.3}
+            maxDistance={4}
           />
           <Grid
-            position={[0, 0, 0]}
+            position={[0, 0.75, 0]}
             args={[12, 12]}
             cellSize={0.25}
             cellThickness={0.6}
@@ -60,14 +62,23 @@ function AdaptiveEnvironment({ objectInteractionActive }) {
 
 function SpatialScene() {
   const [objectInteractionActive, setObjectInteractionActive] = useState(false);
+  const [outpostPosition, setOutpostPosition] = useState(OUTPOST_POSITION);
+  const [outpostScale, setOutpostScale] = useState(DEFAULT_OUTPOST_SCALE);
 
   return (
     <>
       <AdaptiveEnvironment objectInteractionActive={objectInteractionActive} />
-      <Outpost />
+      <Outpost
+        initialPosition={OUTPOST_POSITION}
+        scale={outpostScale}
+        onScaleChange={setOutpostScale}
+        onPositionChange={setOutpostPosition}
+        onGrabChange={setObjectInteractionActive}
+      />
       <Cog />
       <Wrench
-        outpostPosition={OUTPOST_POSITION}
+        outpostPosition={outpostPosition}
+        outpostScale={outpostScale}
         onGrabChange={setObjectInteractionActive}
       />
     </>
@@ -78,7 +89,7 @@ export default function Scene() {
   return (
     <Canvas
       className="scene-canvas"
-      camera={{ position: [2.6, 2.1, 3.3], fov: 46, near: 0.01, far: 100 }}
+      camera={{ position: [1.05, 1.15, 1.45], fov: 42, near: 0.01, far: 100 }}
       gl={{ alpha: true, antialias: true }}
       dpr={[1, 1.75]}
       shadows

@@ -86,8 +86,8 @@ export default function DebugOverlay() {
       </div>
 
       <div className="panel-footer">
-        <span>Drag the wrench into the outpost after a failed build.</span>
-        <span>Orbit: drag · Zoom: wheel</span>
+        <span>Grab either prop to place it. Pull the cyan orb to resize.</span>
+        <span>Empty space: orbit · Wheel: zoom</span>
       </div>
 
       {(lastError || xrError) && (

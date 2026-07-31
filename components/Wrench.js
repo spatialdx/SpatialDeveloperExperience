@@ -5,13 +5,17 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useBuildBridge } from "./BuildBridgeContext";
 
-const startPosition = [0.58, 0.96, -1.18];
+const startPosition = [0.24, 0.86, -0.76];
 const worldPosition = new THREE.Vector3();
 const previousPosition = new THREE.Vector3(...startPosition);
 const collisionCenter = new THREE.Vector3();
 const outpostOffset = new THREE.Vector3(0, 0.42, 0);
 
-export default function Wrench({ outpostPosition, onGrabChange }) {
+export default function Wrench({
+  outpostPosition,
+  outpostScale,
+  onGrabChange,
+}) {
   const groupRef = useRef();
   const draggingRef = useRef(false);
   const xrGrabRef = useRef(false);
@@ -39,6 +43,7 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
   useFrame((_, delta) => {
     if (!groupRef.current) return;
     groupRef.current.getWorldPosition(worldPosition);
+    outpostOffset.set(0, 0.42 * outpostScale, 0);
     collisionCenter.set(...outpostPosition).add(outpostOffset);
     const speed =
       worldPosition.distanceTo(previousPosition) / Math.max(delta, 0.001);
@@ -48,8 +53,8 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
     if (
       status === "FAILED" &&
       !acknowledged &&
-      distance < 0.48 &&
-      speed > 0.32 &&
+      distance < 0.06 + outpostScale * 0.5 &&
+      speed > 0.12 &&
       now - lastCollisionRef.current > 1100
     ) {
       lastCollisionRef.current = now;
@@ -123,7 +128,7 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
     <group
       ref={groupRef}
       rotation={[0.18, 0, -0.7]}
-      scale={0.72}
+      scale={0.22}
       onPointerDown={beginGrab}
       onPointerMove={moveGrab}
       onPointerUp={endGrab}
