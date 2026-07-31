@@ -86,7 +86,7 @@ export default function DebugOverlay() {
       </div>
 
       <div className="panel-footer">
-        <span>Drag the wrench into the outpost after a failed build.</span>
+        <span>Drop objects onto the terminal pad to trigger desktop actions.</span>
         <span>Orbit: drag · Zoom: wheel</span>
       </div>
 

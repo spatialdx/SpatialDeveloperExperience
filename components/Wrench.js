@@ -3,15 +3,12 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { useBuildBridge } from "./BuildBridgeContext";
 
 const startPosition = [0.58, 0.96, -1.18];
 const worldPosition = new THREE.Vector3();
-const previousPosition = new THREE.Vector3(...startPosition);
-const collisionCenter = new THREE.Vector3();
-const outpostOffset = new THREE.Vector3(0, 0.42, 0);
+const padCenter = new THREE.Vector3();
 
-export default function Wrench({ outpostPosition, onGrabChange }) {
+export default function Wrench({ padPosition, padActivationRadius, onGrabChange, onPadHover, onDrop }) {
   const groupRef = useRef();
   const draggingRef = useRef(false);
   const xrGrabRef = useRef(false);
@@ -19,9 +16,10 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
   const dragPlaneRef = useRef(new THREE.Plane());
   const planeIntersectionRef = useRef(new THREE.Vector3());
   const cameraDirectionRef = useRef(new THREE.Vector3());
-  const lastCollisionRef = useRef(0);
+  const inRadiusRef = useRef(false);
+  const droppedRef = useRef(false);
+  const snapTargetRef = useRef(new THREE.Vector3());
   const camera = useThree((state) => state.camera);
-  const { status, acknowledged, registerRepairHit } = useBuildBridge();
 
   // Set the initial position once instead of keeping it as a declarative prop.
   // This prevents unrelated React renders from restoring the start position.
@@ -38,28 +36,27 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
-    groupRef.current.getWorldPosition(worldPosition);
-    collisionCenter.set(...outpostPosition).add(outpostOffset);
-    const speed =
-      worldPosition.distanceTo(previousPosition) / Math.max(delta, 0.001);
-    const distance = worldPosition.distanceTo(collisionCenter);
-    const now = performance.now();
 
-    if (
-      status === "FAILED" &&
-      !acknowledged &&
-      distance < 0.48 &&
-      speed > 0.32 &&
-      now - lastCollisionRef.current > 1100
-    ) {
-      lastCollisionRef.current = now;
-      registerRepairHit();
+    if (droppedRef.current) {
+      groupRef.current.position.lerp(snapTargetRef.current, 1 - Math.exp(-14 * delta));
+      return;
     }
-    previousPosition.copy(worldPosition);
+
+    if (!draggingRef.current) return;
+
+    groupRef.current.getWorldPosition(worldPosition);
+    padCenter.set(...padPosition);
+    const inRadius = worldPosition.distanceTo(padCenter) < padActivationRadius;
+    if (inRadius !== inRadiusRef.current) {
+      inRadiusRef.current = inRadius;
+      onPadHover(inRadius);
+    }
   });
 
   function beginGrab(event) {
     event.stopPropagation();
+    droppedRef.current = false;
+    inRadiusRef.current = false;
     draggingRef.current = true;
     xrGrabRef.current = event.pointerType === "grab";
     onGrabChange(true);
@@ -117,6 +114,27 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
     if (event.target.hasPointerCapture(event.pointerId)) {
       event.target.releasePointerCapture(event.pointerId);
     }
+
+    if (inRadiusRef.current) {
+      droppedRef.current = true;
+      snapTargetRef.current.set(padPosition[0], padPosition[1] + 0.12, padPosition[2]);
+      inRadiusRef.current = false;
+      onPadHover(false);
+      onDrop(true);
+    } else {
+      groupRef.current.position.set(...startPosition);
+      onPadHover(false);
+      onDrop(false);
+    }
+  }
+
+  function cancelGrab() {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    onGrabChange(false);
+    inRadiusRef.current = false;
+    onPadHover(false);
+    groupRef.current.position.set(...startPosition);
   }
 
   return (
@@ -127,8 +145,8 @@ export default function Wrench({ outpostPosition, onGrabChange }) {
       onPointerDown={beginGrab}
       onPointerMove={moveGrab}
       onPointerUp={endGrab}
-      onPointerCancel={endGrab}
-      onLostPointerCapture={endGrab}
+      onPointerCancel={cancelGrab}
+      onLostPointerCapture={cancelGrab}
       pointerEventsOrder={2}
     >
       <mesh castShadow>
