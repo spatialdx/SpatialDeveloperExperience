@@ -39,6 +39,7 @@ export function BuildBridgeProvider({ children }) {
   const [repairPulse, setRepairPulse] = useState(0);
   const [lastError, setLastError] = useState("");
   const [renovatePR, setRenovatePR] = useState(null);
+  const [securityReport, setSecurityReport] = useState(null);
 
   useEffect(() => {
     let disposed = false;
@@ -63,6 +64,8 @@ export function BuildBridgeProvider({ children }) {
             setAcknowledged(false);
           } else if (message.type === "RENOVATE_PR") {
             setRenovatePR(message);
+          } else if (message.type === "SECURITY_REPORT") {
+            setSecurityReport(message);
           } else if (message.type === "ERROR") {
             setLastError(message.message);
           }
@@ -123,6 +126,32 @@ export function BuildBridgeProvider({ children }) {
     return send({ type: "TRIGGER_PC_ACTION", url: buildUrl });
   }, [buildUrl, send]);
 
+  const triggerPrDiff = useCallback(() => {
+    if (!renovatePR?.prUrl) return false;
+    let target;
+    try {
+      const parsed = new URL(renovatePR.prUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+      target = parsed.toString();
+    } catch {
+      return false;
+    }
+    return send({ type: "TRIGGER_PR_DIFF", url: target });
+  }, [renovatePR, send]);
+
+  const triggerShieldAction = useCallback(() => {
+    if (!securityReport?.url) return false;
+    let target;
+    try {
+      const parsed = new URL(securityReport.url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+      target = parsed.toString();
+    } catch {
+      return false;
+    }
+    return send({ type: "TRIGGER_SHIELD", url: target });
+  }, [securityReport, send]);
+
   const registerRepairHit = useCallback(() => {
     if (status !== "FAILED" || acknowledged) return false;
     if (!triggerPcAction()) return false;
@@ -140,8 +169,11 @@ export function BuildBridgeProvider({ children }) {
       repairPulse,
       lastError,
       renovatePR,
+      securityReport,
       setBuildState,
       triggerPcAction,
+      triggerPrDiff,
+      triggerShieldAction,
       registerRepairHit,
     }),
     [
@@ -152,8 +184,11 @@ export function BuildBridgeProvider({ children }) {
       repairPulse,
       lastError,
       renovatePR,
+      securityReport,
       setBuildState,
       triggerPcAction,
+      triggerPrDiff,
+      triggerShieldAction,
       registerRepairHit,
     ],
   );

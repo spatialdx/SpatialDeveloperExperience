@@ -86,8 +86,8 @@ export default function DebugOverlay() {
       </div>
 
       <div className="panel-footer">
-        <span>Grab either prop to place it. Pull the cyan orb to resize.</span>
-        <span>Empty space: orbit · Wheel: zoom</span>
+        <span>Drop objects onto the terminal pad to trigger desktop actions.</span>
+        <span>Orbit: drag · Zoom: wheel</span>
       </div>
 
       {(lastError || xrError) && (

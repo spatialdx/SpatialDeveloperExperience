@@ -4,11 +4,45 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 
-const startPosition = [0.24, 0.86, -0.76];
+const START_POSITION = [-0.55, 0.85, -0.5];
+// Module-level temp vectors; safe because only one ShieldModule exists at a time.
 const worldPosition = new THREE.Vector3();
 const padCenter = new THREE.Vector3();
 
-export default function Wrench({ padPosition, padActivationRadius, onGrabChange, onPadHover, onDrop }) {
+function ShieldMesh() {
+  return (
+    <group>
+      {/* Main shield body */}
+      <mesh castShadow>
+        <boxGeometry args={[0.16, 0.16, 0.045]} />
+        <meshStandardMaterial color="#b06eff" metalness={0.75} roughness={0.25} />
+      </mesh>
+      {/* Diamond point at the bottom */}
+      <mesh castShadow position={[0, -0.13, 0]} rotation={[Math.PI, 0, Math.PI / 4]}>
+        <coneGeometry args={[0.09, 0.1, 4]} />
+        <meshStandardMaterial color="#b06eff" metalness={0.75} roughness={0.25} />
+      </mesh>
+      {/* Inner accent stripe */}
+      <mesh position={[0, 0, 0.024]}>
+        <boxGeometry args={[0.07, 0.12, 0.006]} />
+        <meshStandardMaterial
+          color="#d4a8ff"
+          emissive="#9944ff"
+          emissiveIntensity={0.6}
+        />
+      </mesh>
+      <pointLight color="#9944ff" intensity={0.5} distance={0.5} decay={2} />
+    </group>
+  );
+}
+
+export default function ShieldModule({
+  padPosition,
+  padActivationRadius,
+  onGrabChange,
+  onPadHover,
+  onDrop,
+}) {
   const groupRef = useRef();
   const draggingRef = useRef(false);
   const xrGrabRef = useRef(false);
@@ -21,10 +55,8 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
   const snapTargetRef = useRef(new THREE.Vector3());
   const camera = useThree((state) => state.camera);
 
-  // Set the initial position once instead of keeping it as a declarative prop.
-  // This prevents unrelated React renders from restoring the start position.
   useLayoutEffect(() => {
-    groupRef.current.position.set(...startPosition);
+    groupRef.current.position.set(...START_POSITION);
   }, []);
 
   useEffect(
@@ -36,6 +68,7 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
 
   useFrame((_, delta) => {
     if (!groupRef.current) return;
+
     if (droppedRef.current) {
       groupRef.current.position.lerp(snapTargetRef.current, 1 - Math.exp(-14 * delta));
       return;
@@ -121,7 +154,7 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
       onPadHover(false);
       onDrop(true);
     } else {
-      groupRef.current.position.set(...startPosition);
+      groupRef.current.position.set(...START_POSITION);
       onPadHover(false);
       onDrop(false);
     }
@@ -133,14 +166,12 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
     onGrabChange(false);
     inRadiusRef.current = false;
     onPadHover(false);
-    groupRef.current.position.set(...startPosition);
+    groupRef.current.position.set(...START_POSITION);
   }
 
   return (
     <group
       ref={groupRef}
-      rotation={[0.18, 0, -0.7]}
-      scale={0.22}
       onPointerDown={beginGrab}
       onPointerMove={moveGrab}
       onPointerUp={endGrab}
@@ -148,47 +179,7 @@ export default function Wrench({ padPosition, padActivationRadius, onGrabChange,
       onLostPointerCapture={cancelGrab}
       pointerEventsOrder={2}
     >
-      <mesh castShadow>
-        <cylinderGeometry args={[0.055, 0.075, 0.72, 12]} />
-        <meshStandardMaterial
-          color="#b9c6c3"
-          metalness={0.94}
-          roughness={0.19}
-        />
-      </mesh>
-
-      <mesh castShadow position={[0, 0.43, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.145, 0.055, 10, 22]} />
-        <meshStandardMaterial color="#c7d2cf" metalness={0.95} roughness={0.17} />
-      </mesh>
-
-      <group position={[0, -0.44, 0]}>
-        <mesh castShadow position={[-0.085, 0, 0]} rotation={[0, 0, -0.45]}>
-          <boxGeometry args={[0.1, 0.27, 0.09]} />
-          <meshStandardMaterial
-            color="#c7d2cf"
-            metalness={0.95}
-            roughness={0.17}
-          />
-        </mesh>
-        <mesh castShadow position={[0.085, 0, 0]} rotation={[0, 0, 0.45]}>
-          <boxGeometry args={[0.1, 0.27, 0.09]} />
-          <meshStandardMaterial
-            color="#c7d2cf"
-            metalness={0.95}
-            roughness={0.17}
-          />
-        </mesh>
-      </group>
-
-      <mesh position={[0, 0, 0.055]}>
-        <boxGeometry args={[0.045, 0.44, 0.014]} />
-        <meshStandardMaterial
-          color="#72f6c1"
-          emissive="#1bb37e"
-          emissiveIntensity={0.9}
-        />
-      </mesh>
+      <ShieldMesh />
     </group>
   );
 }

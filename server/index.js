@@ -80,7 +80,18 @@ function normalizeBuildState(payload) {
 
   return { status, buildUrl: parsedUrl.toString() };
 }
-
+function validateUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("url must be a valid URL");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("url must use http or https");
+  }
+  return parsed.toString();
+}
 async function loadTlsOptions() {
   if (!XR_HTTPS) return null;
 
@@ -147,42 +158,68 @@ socketServer.on("connection", (socket, request) => {
       return;
     }
 
-    if (message.type !== "TRIGGER_PC_ACTION") return;
+    if (message.type === "TRIGGER_PC_ACTION") {
+      const displayState = buildStates.get(lastBroadcastRepo);
+      let target;
+      try {
+        target = normalizeBuildState({
+          status: displayState.status,
+          buildUrl: message.url,
+        }).buildUrl;
+      } catch (error) {
+        socket.send(JSON.stringify({ type: "ERROR", message: error.message }));
+        return;
+      }
 
-    const displayState = buildStates.get(lastBroadcastRepo);
-    let target;
-    try {
-      target = normalizeBuildState({
-        status: displayState.status,
-        buildUrl: message.url,
-      }).buildUrl;
-    } catch (error) {
-      socket.send(JSON.stringify({ type: "ERROR", message: error.message }));
+      if (!ALLOW_ARBITRARY_BUILD_URLS && target !== displayState.buildUrl) {
+        socket.send(
+          JSON.stringify({
+            type: "ERROR",
+            message: "Requested URL does not match the active build.",
+          }),
+        );
+        return;
+      }
+
+      try {
+        if (!DISABLE_PC_ACTIONS) await open(target, { wait: false });
+        console.log(`[pc] Opened build log: ${target}`);
+        socket.send(JSON.stringify({ type: "PC_ACTION_ACK", url: target }));
+      } catch (error) {
+        console.error("[pc] Could not open build log:", error);
+        socket.send(
+          JSON.stringify({
+            type: "ERROR",
+            message: "The desktop could not open the build URL.",
+          }),
+        );
+      }
       return;
     }
 
-    if (!ALLOW_ARBITRARY_BUILD_URLS && target !== displayState.buildUrl) {
-      socket.send(
-        JSON.stringify({
-          type: "ERROR",
-          message: "Requested URL does not match the active build.",
-        }),
-      );
+    if (message.type === "TRIGGER_PR_DIFF" || message.type === "TRIGGER_SHIELD") {
+      let target;
+      try {
+        target = validateUrl(message.url);
+      } catch (error) {
+        socket.send(JSON.stringify({ type: "ERROR", message: error.message }));
+        return;
+      }
+      const label = message.type === "TRIGGER_PR_DIFF" ? "PR diff" : "security report";
+      try {
+        if (!DISABLE_PC_ACTIONS) await open(target, { wait: false });
+        console.log(`[pc] Opened ${label}: ${target}`);
+        socket.send(JSON.stringify({ type: "PC_ACTION_ACK", url: target }));
+      } catch (error) {
+        console.error(`[pc] Could not open ${label}:`, error);
+        socket.send(
+          JSON.stringify({
+            type: "ERROR",
+            message: "The desktop could not open the requested URL.",
+          }),
+        );
+      }
       return;
-    }
-
-    try {
-      if (!DISABLE_PC_ACTIONS) await open(target, { wait: false });
-      console.log(`[pc] Opened build log: ${target}`);
-      socket.send(JSON.stringify({ type: "PC_ACTION_ACK", url: target }));
-    } catch (error) {
-      console.error("[pc] Could not open build log:", error);
-      socket.send(
-        JSON.stringify({
-          type: "ERROR",
-          message: "The desktop could not open the build URL.",
-        }),
-      );
     }
   });
 
