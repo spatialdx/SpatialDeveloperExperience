@@ -63,8 +63,8 @@ function isRenovateBot(login) {
 
 function normalizeBuildState(payload) {
   const status = String(payload?.status || "").toUpperCase();
-  if (status !== "PASSED" && status !== "WARNING" && status !== "FAILED") {
-    throw new Error('status must be "PASSED", "WARNING", or "FAILED"');
+  if (status !== "PASSED" && status !== "WARNING" && status !== "FAILED" && status !== "RUNNING") {
+    throw new Error('status must be "PASSED", "WARNING", "FAILED", or "RUNNING"');
   }
 
   let parsedUrl;
@@ -271,11 +271,15 @@ app.post("/api/webhook/github", express.raw({ type: "*/*" }), (request, response
   const repo = payload.repository?.full_name || "unknown";
 
   if (eventType === "workflow_run") {
-    if (payload.action !== "completed") {
-      return response.status(200).json({ ok: true, note: "Event ignored" });
-    }
-    const status = mapWorkflowConclusion(payload.workflow_run?.conclusion);
-    if (!status) {
+    let status;
+    if (payload.action === "in_progress") {
+      status = "RUNNING";
+    } else if (payload.action === "completed") {
+      status = mapWorkflowConclusion(payload.workflow_run?.conclusion);
+      if (!status) {
+        return response.status(200).json({ ok: true, note: "Event ignored" });
+      }
+    } else {
       return response.status(200).json({ ok: true, note: "Event ignored" });
     }
     const buildUrl = payload.workflow_run?.html_url || "";
@@ -287,7 +291,7 @@ app.post("/api/webhook/github", express.raw({ type: "*/*" }), (request, response
     }
     buildStates.set(repo, normalized);
     broadcastBuildState(repo);
-    console.log(`[github] ${repo} ${normalized.status} (${payload.workflow_run?.conclusion}) — ${deliveryId}`);
+    console.log(`[github] ${repo} ${normalized.status} (${payload.workflow_run?.conclusion ?? payload.action}) — ${deliveryId}`);
     return response.status(202).json({ ok: true, build: { ...normalized, repo } });
   }
 

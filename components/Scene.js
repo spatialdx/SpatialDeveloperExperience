@@ -5,6 +5,7 @@ import { Canvas } from "@react-three/fiber";
 import { Grid, OrbitControls, Text } from "@react-three/drei";
 import { XR, createXRStore, useXR } from "@react-three/xr";
 import Outpost, { OUTPOST_POSITION } from "./Outpost";
+import Spaceship from "./Spaceship";
 import Wrench from "./Wrench";
 import Cog from "./Cog";
 import DockingPad from "./DockingPad";
@@ -150,6 +151,7 @@ function SpatialScene() {
         onPositionChange={setOutpostPosition}
         onGrabChange={setObjectInteractionActive}
       />
+      <Spaceship stationPosition={outpostPosition} stationScale={outpostScale} />
       <Cog
         padPosition={PAD_POSITION}
         padActivationRadius={PAD_ACTIVATION_RADIUS}
